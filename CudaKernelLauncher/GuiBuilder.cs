@@ -20,6 +20,7 @@ namespace CudaKernelLauncher
 		Dictionary<string, Type> Parameters = [];
 
 
+
 		// ----- OBJECTS ----- \\
 		private WindowMain Win;
 
@@ -284,15 +285,34 @@ namespace CudaKernelLauncher
 			// Hole Parameter-Typen
 			var paramTypes = Parameters.Values.ToList();
 
-			// Hole Werte aus ParamNumerics
+			// Skip pointers and lengths
+			int skip = 0;
+			foreach ( var p in Parameters )
+			{
+				// Skip pointer
+				if (p.Key == p.Key.ToUpper())
+				{
+					skip++;
+					continue;
+				}
+
+				// Skip length
+				if (p.Value == typeof(int) || p.Value == typeof(long) && skip % 2 == 0)
+				{
+					skip++;
+					continue;
+				}
+			}
+
+			// Get values from numerics
 			object[] values = new object[ParamNumerics.Count];
 
 			for (int i = 0; i < ParamNumerics.Count; i++)
 			{
 				decimal value = ParamNumerics[i].Value;
-				Type type = paramTypes[i];
+				Type type = paramTypes[i + skip];
 
-				// Konvertiere Wert in den richtigen Typ
+				// Convert value to type
 				values[i] = type == typeof(int) ? (object) (int) value :
 							type == typeof(long) ? (long) value :
 							type == typeof(float) ? (float) value :

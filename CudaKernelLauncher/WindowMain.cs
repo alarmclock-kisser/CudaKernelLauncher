@@ -370,11 +370,14 @@ namespace CudaKernelLauncher
 			var length = AH.CurrentTrack.Length;
 			var parameters = GuiB.GetParamValues();
 
-			// DEBUG log parameters with GuiB
-			var logEntries = parameters.Select(p => $"{p} ({p.GetType().Name})");
-			string logMessage = "Parameter values: " + string.Join(", ", logEntries);
+			// Call kernelH to sort params & pointer(s) + length(s)
+			var sortedParams = CCH.KernelH.SortParams(pointer, length, parameters);
 
-			GuiB.Log(logMessage);
+			// Execute kernel
+			AH.CurrentTrack.Pointer = CCH.KernelH.ExecuteKernelSorted(sortedParams);
+
+			// Toggle UI
+			ToggleUI();
 
 		}
 	}

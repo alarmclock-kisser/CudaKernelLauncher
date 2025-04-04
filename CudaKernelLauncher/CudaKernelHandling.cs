@@ -604,6 +604,58 @@ namespace CudaKernelLauncher
 
 
 		// Execute
+		public object?[] SortParams(long pointer, long length, object[] parameters)
+		{
+			// Get required params
+			var required = GetKernelParameters();
+			object?[] sorted = new object[required.Count];
+			int pointersCount = 0;
+			int lengthsCount = 0;
+
+			for (int i = 0; i < parameters.Length; i++)
+			{
+				string key = required.ElementAt(i).Key;
+				Type type = required.ElementAt(i).Value;
+				
+				// Check if key is pointer
+				if (key == key.ToUpper())
+				{
+					type = typeof(CUdeviceptr);
+					required[key] = type;
+					sorted[i] = new CUdeviceptr(pointer);
+					pointersCount++;
+					continue;
+				}
+
+				// Check if key is length
+				else if ((type == typeof(int) || type == typeof(long)) && lengthsCount < pointersCount)
+				{
+					sorted[i] = length;
+					lengthsCount++;
+					continue;
+				}
+
+				else 
+				{
+					sorted[i] = parameters[i];
+				}
+
+
+				// Else get parameter from input
+				int index = Array.FindIndex(parameters, x => x.GetType() == type);
+				if (index != -1)
+				{
+					sorted[i] = parameters[index];
+				}
+				else
+				{
+					sorted[i] = null;
+				}
+			}
+
+			return sorted;
+		}
+
 		public void ExecuteKernelOld(long indexPointer, float param1, float? param2 = null)
 		{
 			if (Ctx == null || MemH == null)
@@ -822,6 +874,76 @@ namespace CudaKernelLauncher
 					// Pointer first argument, second size, rest parameters
 					Kernel.Run([pointers[n], sizes[n], .. formattedParams]);
 				}
+
+				// Log progress
+				if (n % LogInterval == 0)
+				{
+					Log("Ran kernel on input " + n + " / " + pointers.LongLength, "", 2, true);
+				}
+			}
+
+			// Log final
+			sw.Stop();
+			long deltaMicros = sw.ElapsedTicks / (Stopwatch.Frequency / (1000L * 1000L));
+			Log("Ran kernel on " + pointers.LongLength + " pointers within " + deltaMicros.ToString("N0") + " µs", "Ptr: " + indexPointer, 1, true);
+
+			// Return index pointer
+			return indexPointer;
+		}
+
+		public long ExecuteKernelSorted(object?[] parameters)
+		{
+			// Check MemH
+			if (MemH == null || Kernel == null)
+			{
+				Log("No memory handling or kernel available", "", 1);
+				return 0;
+			}
+
+			// Get indexPointer (first param with CUdeviceptr)
+			long indexPointer = 0;
+			foreach (object? p in parameters)
+			{
+				if (p == null)
+				{
+					continue;
+				}
+				if (p is CUdeviceptr ptr)
+				{
+					indexPointer = ptr.Pointer;
+					break;
+				}
+			}
+			if (indexPointer == 0)
+			{
+				Log("No index pointer found", "", 1);
+				return 0;
+			}
+
+			// Get buffers & lengths
+			CUdeviceptr[] pointers = MemH.GetPointersFromIndex(indexPointer, out int[] lengths);
+			if (pointers == null || pointers.Length == 0 || lengths.Any(l => l < 1))
+			{
+				Log("No input variables or invalid length(s) found", "", 1);
+				return 0;
+			}
+
+			// Set grid and block size
+			Kernel.BlockDimensions = new dim3(256, 1, 1);
+			Kernel.GridDimensions = new dim3((int) Math.Ceiling(pointers.LongLength / 256.0), 1, 1);
+
+			// Log & stopwatch
+			Log("Started running kernel '" + Kernel.KernelName + "' on " + pointers.LongLength + " input variables");
+			Stopwatch sw = Stopwatch.StartNew();
+
+			// Run for each pointer
+			for (int n = 0; n < pointers.LongLength; n++)
+			{
+				// Sort params
+				object?[] sortedParams = SortParams(pointers[n].Pointer, lengths[n], parameters);
+
+				// Run kernel with parameters
+				Kernel.Run(sortedParams);
 
 				// Log progress
 				if (n % LogInterval == 0)
